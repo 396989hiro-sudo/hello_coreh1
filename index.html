@@ -775,7 +775,7 @@
           </div>
         </div>
         <div class="notice">
-          💚 <strong>初回体験は完全無料・マンツーマン！</strong><br />
+          💚 <strong>初回体験は完全無料！お友達も一緒にどうぞ</strong><br />
           はじめての方はぜひお気軽にご予約ください。
         </div>
         <div class="pad"></div>
@@ -971,12 +971,33 @@
           };
         return { c: "ok", mark: "○", text: "空きあり", rem: CFG.MAX };
       }
+
+      // バッファー適用: 予約済みスロットの前後1時間を×にする
+      function applyBuffer(slots) {
+        const keys = Object.keys(slots).sort();
+        const bookedIdxs = new Set();
+        keys.forEach((k, i) => {
+          const s = slots[k];
+          if (!s.closed && (s.n > 0 || s.hasT || s.hasP)) bookedIdxs.add(i);
+        });
+        bookedIdxs.forEach((i) => {
+          if (i > 0 && !bookedIdxs.has(i - 1)) slots[keys[i - 1]].closed = true;
+          if (i < keys.length - 1 && !bookedIdxs.has(i + 1))
+            slots[keys[i + 1]].closed = true;
+        });
+      }
+
+      // ② 新しいdaySt: 6スロット以上が×/△なら△、全て×なら×
       function daySt(slots) {
         const vs = Object.values(slots);
-        if (vs.every((s) => s.closed || s.hasT || s.hasP || s.n >= CFG.MAX))
-          return { c: "ng", mark: "×" };
-        if (vs.some((s) => !s.closed && !s.hasT && !s.hasP && s.n > 0))
-          return { c: "wa", mark: "△" };
+        const total = vs.length;
+        let ngCount = 0, waCount = 0;
+        vs.forEach((s) => {
+          if (s.closed || s.hasT || s.hasP || s.n >= CFG.MAX) ngCount++;
+          else if (s.n > 0) waCount++;
+        });
+        if (ngCount === total) return { c: "ng", mark: "×" };
+        if (ngCount + waCount >= 6) return { c: "wa", mark: "△" };
         return { c: "ok", mark: "○" };
       }
 
@@ -993,10 +1014,7 @@
           const slots = {};
           for (let h = CFG.START; h < CFG.END; h++) {
             const k = `${p2(h)}:00`;
-            if (dow === 0) {
-              slots[k] = { closed: true, n: 0, hasT: false, hasP: false };
-              continue;
-            }
+            // ① 日曜デフォルト休業を削除 — 全日オープン
             const r = Math.random();
             if (r < 0.08)
               slots[k] = { closed: false, n: 0, hasT: true, hasP: false };
@@ -1018,6 +1036,8 @@
               };
             else slots[k] = { closed: false, n: 0, hasT: false, hasP: false };
           }
+          // ③ バッファー適用（予約済み前後1時間を×）
+          applyBuffer(slots);
           const st = daySt(slots);
           data[ds] = { slots, mark: st.mark, code: st.c };
         }
@@ -1187,7 +1207,7 @@
             tag: "無料",
             cls: "free",
             dis: !empty,
-            desc: "はじめての方向け・マンツーマンで丁寧にご指導します",
+            desc: "はじめての方向け・お友達も一緒に参加OK！（最大4名）",
           },
           {
             id: "group",
@@ -1227,16 +1247,18 @@
 
       function pickType(id) {
         S.type = id;
-        if (id !== "group") S.num = 1;
+        // ④ personal のみマンツーマン固定。trial・group は人数選択可
+        if (id === "personal") S.num = 1;
         document.querySelectorAll(".lopt").forEach((el) => {
           const fn = el.getAttribute("onclick");
           el.classList.toggle("sel", fn === `pickType('${id}')`);
         });
         const a = S.avail[S.date];
         const st = slotSt(a ? a.slots[S.slot] : null);
-        document.getElementById("num-card").style.display =
-          id === "group" ? "block" : "none";
-        if (id === "group") drawNumGrid(st.rem);
+        // ④ trial・group は人数カードを表示
+        const showNum = id === "group" || id === "trial";
+        document.getElementById("num-card").style.display = showNum ? "block" : "none";
+        if (showNum) drawNumGrid(id === "group" ? st.rem : CFG.MAX);
       }
 
       function drawNumGrid(rem) {
@@ -1305,7 +1327,7 @@
           { l: "レッスン", v: typeLabel(S.type) },
           {
             l: "来店人数",
-            v: S.type === "group" ? `${S.num}名` : "1名（マンツーマン）",
+            v: S.type === "personal" ? "1名（マンツーマン）" : `${S.num}名`,
           },
           { l: "お名前", v: `${S.form.name}（${S.form.furi}）` },
           { l: "連絡先", v: S.form.contact },
@@ -1342,7 +1364,7 @@
               date: S.date,
               slot: S.slot,
               lesson: S.type,
-              numPeople: S.type === "group" ? S.num : 1,
+              numPeople: S.type === "personal" ? 1 : S.num,
               name: S.form.name,
               furigana: S.form.furi,
               contact: S.form.contact,
